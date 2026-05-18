@@ -1,0 +1,371 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflows_ConnectWise_Incident_Notification_name": {
+            "defaultValue": "ConnectWise-Incident-Notification",
+            "type": "String"
+        },
+        "connections_azuresentinel_ConnectWise_Incident_Notification_externalid": {
+            "defaultValue": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/resourceGroups/RG-IN2-SEC-MSSP-PRD-AWE-001/providers/Microsoft.Web/connections/azuresentinel-ConnectWise-Incident-Notification",
+            "type": "String"
+        },
+        "connections_connectwisepsa_1_externalid": {
+            "defaultValue": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/resourceGroups/RG-IN2-SEC-MSSP-PRD-AWE-001/providers/Microsoft.Web/connections/connectwisepsa-1",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('workflows_ConnectWise_Incident_Notification_name')]",
+            "location": "westeurope",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "Microsoft_Sentinel_incident": {
+                            "type": "ApiConnectionWebhook",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                    }
+                                },
+                                "body": {
+                                    "callback_url": "@{listCallbackUrl()}"
+                                },
+                                "path": "/incident-creation"
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Select": {
+                            "runAfter": {
+                                "Initialize_variable_1": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Select",
+                            "inputs": {
+                                "from": "@triggerBody()?['object']?['properties']?['labels']",
+                                "select": {
+                                    "Assign To": "@item()?['labelName']"
+                                }
+                            }
+                        },
+                        "Create_CSV_table": {
+                            "runAfter": {
+                                "For_each_1": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Table",
+                            "inputs": {
+                                "from": "@body('Select')",
+                                "format": "CSV"
+                            }
+                        },
+                        "Initialize_variable": {
+                            "runAfter": {
+                                "Create_CSV_table": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Priority",
+                                        "type": "integer"
+                                    }
+                                ]
+                            }
+                        },
+                        "Condition": {
+                            "actions": {
+                                "Set_variable": {
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "Priority",
+                                        "value": 3
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Initialize_variable": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "else": {
+                                "actions": {
+                                    "Condition_1": {
+                                        "actions": {
+                                            "Set_variable_1": {
+                                                "type": "SetVariable",
+                                                "inputs": {
+                                                    "name": "Priority",
+                                                    "value": 2
+                                                }
+                                            }
+                                        },
+                                        "else": {
+                                            "actions": {
+                                                "Set_variable_2": {
+                                                    "type": "SetVariable",
+                                                    "inputs": {
+                                                        "name": "Priority",
+                                                        "value": 1
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "expression": {
+                                            "and": [
+                                                {
+                                                    "contains": [
+                                                        "@triggerBody()?['object']?['properties']?['severity']",
+                                                        "medium"
+                                                    ]
+                                                }
+                                            ]
+                                        },
+                                        "type": "If"
+                                    }
+                                }
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "contains": [
+                                            "@triggerBody()?['object']?['properties']?['severity']",
+                                            "high"
+                                        ]
+                                    }
+                                ]
+                            },
+                            "type": "If"
+                        },
+                        "Initialize_variable_1": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Tag Name",
+                                        "type": "object"
+                                    }
+                                ]
+                            }
+                        },
+                        "For_each_1": {
+                            "foreach": "@outputs('Select')['body']",
+                            "actions": {
+                                "Set_variable_3": {
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "Tag Name",
+                                        "value": "@items('For_each_1')"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Select": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "Initialize_variable_2": {
+                            "runAfter": {
+                                "Condition": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Comments",
+                                        "type": "string",
+                                        "value": "<html>\n<body>\n</br></br><b>Comments: </b>@{triggerBody()?['object']?['properties']?['Comments']}\n</body>\n</html>"
+                                    }
+                                ]
+                            }
+                        },
+                        "Tags": {
+                            "runAfter": {
+                                "Initialize_variable_2": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "tags",
+                                        "type": "array",
+                                        "value": "@triggerBody()?['object']?['properties']?['labels']"
+                                    }
+                                ]
+                            }
+                        },
+                        "var_TicketTag": {
+                            "runAfter": {
+                                "Tags": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "tickettag",
+                                        "type": "object"
+                                    }
+                                ]
+                            }
+                        },
+                        "For_each": {
+                            "foreach": "@variables('tags')",
+                            "actions": {
+                                "Condition_2": {
+                                    "actions": {
+                                        "set_TicketTag": {
+                                            "type": "SetVariable",
+                                            "inputs": {
+                                                "name": "tickettag",
+                                                "value": "@items('For_each')"
+                                            }
+                                        }
+                                    },
+                                    "else": {
+                                        "actions": {}
+                                    },
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "contains": [
+                                                    "@items('For_each')?['labelName']",
+                                                    "-"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "type": "If"
+                                }
+                            },
+                            "runAfter": {
+                                "var_TicketTag": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "Condition_3": {
+                            "actions": {
+                                "GetTickets": {
+                                    "runAfter": {
+                                        "Create_a_ConnectWise_ticket": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['connectwisepsa-1']['connectionId']"
+                                            }
+                                        },
+                                        "method": "get",
+                                        "headers": {
+                                            "clientId": "1910ee78-eff8-4aec-89c1-95c6c0ce9192"
+                                        },
+                                        "path": "/v4_6_release/apis/3.0/service/tickets"
+                                    }
+                                },
+                                "Create_a_ConnectWise_ticket": {
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['connectwisepsa']['connectionId']"
+                                            }
+                                        },
+                                        "method": "post",
+                                        "body": "@{variables('tickettag')}@{variables('Tag Name')}",
+                                        "headers": {
+                                            "clientId": "1910ee78-eff8-4aec-89c1-95c6c0ce9192"
+                                        },
+                                        "path": "/v4_6_release/apis/3.0/service/tickets"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "For_each": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "else": {
+                                "actions": {}
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "equals": [
+                                            "@empty(variables('tickettag'))",
+                                            "@true"
+                                        ]
+                                    }
+                                ]
+                            },
+                            "type": "If"
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "azuresentinel": {
+                                "id": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/providers/Microsoft.Web/locations/westeurope/managedApis/azuresentinel",
+                                "connectionId": "[parameters('connections_azuresentinel_ConnectWise_Incident_Notification_externalid')]",
+                                "connectionName": "[concat('azuresentinel-', parameters('workflows_ConnectWise_Incident_Notification_name'))]",
+                                "connectionProperties": {
+                                    "authentication": {
+                                        "type": "ManagedServiceIdentity"
+                                    }
+                                }
+                            },
+                            "connectwisepsa-1": {
+                                "id": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/providers/Microsoft.Web/locations/westeurope/managedApis/connectwisepsa",
+                                "connectionId": "[parameters('connections_connectwisepsa_1_externalid')]",
+                                "connectionName": "connectwisepsa-1",
+                                "connectionProperties": {}
+                            },
+                            "connectwisepsa": {
+                                "id": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/providers/Microsoft.Web/locations/westeurope/managedApis/connectwisepsa",
+                                "connectionId": "[parameters('connections_connectwisepsa_1_externalid')]",
+                                "connectionName": "connectwisepsa-1",
+                                "connectionProperties": {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
