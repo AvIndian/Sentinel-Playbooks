@@ -1,0 +1,148 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflows_Revoke_EntraIDUserSignInSessions_Movella_name": {
+            "defaultValue": "Revoke-EntraIDUserSignInSessions-Movella",
+            "type": "String"
+        },
+        "connections_azuresentinel_Revoke_EntraIDUserSignInSessions_Movella_externalid": {
+            "defaultValue": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/resourceGroups/RG-IN2-SEC-MSSP-PRD-AWE-001/providers/Microsoft.Web/connections/azuresentinel-Revoke-EntraIDUserSignInSessions-Movella",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('workflows_Revoke_EntraIDUserSignInSessions_Movella_name')]",
+            "location": "westeurope",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "Microsoft_Sentinel_incident": {
+                            "type": "ApiConnectionWebhook",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                    }
+                                },
+                                "body": {
+                                    "callback_url": "@{listCallbackUrl()}"
+                                },
+                                "path": "/incident-creation"
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Entities_-_Get_Accounts": {
+                            "runAfter": {},
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                    }
+                                },
+                                "method": "post",
+                                "body": "@triggerBody()?['object']?['properties']?['relatedEntities']",
+                                "path": "/entities/account"
+                            }
+                        },
+                        "For_each": {
+                            "foreach": "@body('Entities_-_Get_Accounts')?['Accounts']",
+                            "actions": {
+                                "Compose": {
+                                    "type": "Compose",
+                                    "inputs": "@concat(items('For_each')?['Name'], '@', items('for_each')?['UPNSuffix'])"
+                                },
+                                "HTTP": {
+                                    "runAfter": {
+                                        "Compose": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Http",
+                                    "inputs": {
+                                        "uri": "https://graph.microsoft.com/v1.0/users/@{outputs('Compose')}/revokeSignInSessions",
+                                        "method": "POST",
+                                        "headers": {
+                                            "Content Type": "application/json"
+                                        },
+                                        "authentication": {
+                                            "type": "ManagedServiceIdentity",
+                                            "audience": "https://graph.microsoft.com"
+                                        }
+                                    },
+                                    "runtimeConfiguration": {
+                                        "contentTransfer": {
+                                            "transferMode": "Chunked"
+                                        }
+                                    }
+                                },
+                                "Add_comment_to_incident_(V3)": {
+                                    "runAfter": {
+                                        "HTTP": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                            }
+                                        },
+                                        "method": "post",
+                                        "body": {
+                                            "incidentArmId": "@triggerBody()?['object']?['id']",
+                                            "message": "<p class=\"editor-paragraph\">User @{outputs('Compose')} sign in sessions were revoked in EntraID</p>"
+                                        },
+                                        "path": "/Incidents/Comment"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Entities_-_Get_Accounts": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "azuresentinel": {
+                                "id": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/providers/Microsoft.Web/locations/westeurope/managedApis/azuresentinel",
+                                "connectionId": "[parameters('connections_azuresentinel_Revoke_EntraIDUserSignInSessions_Movella_externalid')]",
+                                "connectionName": "[concat('azuresentinel-', parameters('workflows_Revoke_EntraIDUserSignInSessions_Movella_name'))]",
+                                "connectionProperties": {
+                                    "authentication": {
+                                        "type": "ManagedServiceIdentity"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
