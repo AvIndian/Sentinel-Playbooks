@@ -1,0 +1,442 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflows_Freshservice_Incident_Notification_name": {
+            "defaultValue": "Freshservice-Incident-Notification",
+            "type": "String"
+        },
+        "connections_azuresentinel_Freshservice_Incident_Notification_externalid": {
+            "defaultValue": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/resourceGroups/RG-IN2-SEC-MSSP-PRD-AWE-001/providers/Microsoft.Web/connections/azuresentinel-Freshservice-Incident-Notification",
+            "type": "String"
+        },
+        "connections_freshservice_externalid": {
+            "defaultValue": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/resourceGroups/RG-IN2-SEC-MSSP-PRD-AWE-001/providers/Microsoft.Web/connections/freshservice",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('workflows_Freshservice_Incident_Notification_name')]",
+            "location": "westeurope",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "state": "Disabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "Microsoft_Sentinel_incident": {
+                            "type": "ApiConnectionWebhook",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                    }
+                                },
+                                "body": {
+                                    "callback_url": "@{listCallbackUrl()}"
+                                },
+                                "path": "/incident-creation"
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Select": {
+                            "runAfter": {
+                                "Initialize_variable_1": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Select",
+                            "inputs": {
+                                "from": "@triggerBody()?['object']?['properties']?['labels']",
+                                "select": {
+                                    "Assign To": "@item()?['labelName']"
+                                }
+                            }
+                        },
+                        "Create_CSV_table": {
+                            "runAfter": {
+                                "For_each_1": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Table",
+                            "inputs": {
+                                "from": "@body('Select')",
+                                "format": "CSV"
+                            }
+                        },
+                        "Initialize_variable": {
+                            "runAfter": {
+                                "Create_CSV_table": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Priority",
+                                        "type": "integer"
+                                    }
+                                ]
+                            }
+                        },
+                        "Condition": {
+                            "actions": {
+                                "Set_variable": {
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "Priority",
+                                        "value": 3
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Initialize_variable": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "else": {
+                                "actions": {
+                                    "Condition_1": {
+                                        "actions": {
+                                            "Set_variable_1": {
+                                                "type": "SetVariable",
+                                                "inputs": {
+                                                    "name": "Priority",
+                                                    "value": 2
+                                                }
+                                            }
+                                        },
+                                        "else": {
+                                            "actions": {
+                                                "Set_variable_2": {
+                                                    "type": "SetVariable",
+                                                    "inputs": {
+                                                        "name": "Priority",
+                                                        "value": 1
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "expression": {
+                                            "and": [
+                                                {
+                                                    "contains": [
+                                                        "@triggerBody()?['object']?['properties']?['severity']",
+                                                        "medium"
+                                                    ]
+                                                }
+                                            ]
+                                        },
+                                        "type": "If"
+                                    }
+                                }
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "contains": [
+                                            "@triggerBody()?['object']?['properties']?['severity']",
+                                            "high"
+                                        ]
+                                    }
+                                ]
+                            },
+                            "type": "If"
+                        },
+                        "Initialize_variable_1": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Tag Name",
+                                        "type": "object"
+                                    }
+                                ]
+                            }
+                        },
+                        "For_each_1": {
+                            "foreach": "@outputs('Select')['body']",
+                            "actions": {
+                                "Set_variable_3": {
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "Tag Name",
+                                        "value": "@items('For_each_1')"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Select": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "Initialize_variable_2": {
+                            "runAfter": {
+                                "Condition": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Comments",
+                                        "type": "string",
+                                        "value": "<html>\n<body>\n</br></br><b>Comments: </b>@{triggerBody()?['object']?['properties']?['Comments']}\n</body>\n</html>"
+                                    }
+                                ]
+                            }
+                        },
+                        "Tags": {
+                            "runAfter": {
+                                "Initialize_variable_2": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "tags",
+                                        "type": "array",
+                                        "value": "@triggerBody()?['object']?['properties']?['labels']"
+                                    }
+                                ]
+                            }
+                        },
+                        "var_TicketTag": {
+                            "runAfter": {
+                                "Tags": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "tickettag",
+                                        "type": "object"
+                                    }
+                                ]
+                            }
+                        },
+                        "For_each": {
+                            "foreach": "@variables('tags')",
+                            "actions": {
+                                "Condition_2": {
+                                    "actions": {
+                                        "set_TicketTag": {
+                                            "type": "SetVariable",
+                                            "inputs": {
+                                                "name": "tickettag",
+                                                "value": "@items('For_each')"
+                                            }
+                                        }
+                                    },
+                                    "else": {
+                                        "actions": {}
+                                    },
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "contains": [
+                                                    "@items('For_each')?['labelName']",
+                                                    "-"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "type": "If"
+                                }
+                            },
+                            "runAfter": {
+                                "var_TicketTag": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "Condition_3": {
+                            "actions": {
+                                "Add_comment_to_incident_(V3)": {
+                                    "runAfter": {
+                                        "Create_a_ticket_(V2)": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                            }
+                                        },
+                                        "method": "post",
+                                        "body": {
+                                            "incidentArmId": "@triggerBody()?['object']?['id']",
+                                            "message": "<p class=\"editor-paragraph\">Ticket_ID:-@{body('Create_a_ticket_(V2)')?['ticket']?['id']}</p><br>"
+                                        },
+                                        "path": "/Incidents/Comment"
+                                    }
+                                },
+                                "Update_incident": {
+                                    "runAfter": {
+                                        "Add_comment_to_incident_(V3)": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                            }
+                                        },
+                                        "method": "put",
+                                        "body": {
+                                            "incidentArmId": "@triggerBody()?['object']?['id']",
+                                            "tagsToAdd": {
+                                                "TagsToAdd": [
+                                                    {
+                                                        "Tag": "INC-@{body('Create_a_ticket_(V2)')?['ticket']?['id']}"
+                                                    },
+                                                    {
+                                                        "Tag": "Notification Sent"
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "path": "/Incidents"
+                                    }
+                                },
+                                "Create_a_ticket_(V2)": {
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['freshservice']['connectionId']"
+                                            }
+                                        },
+                                        "method": "post",
+                                        "body": {
+                                            "subject": "MOV | Incident ID: @{triggerBody()?['object']?['properties']?['incidentNumber']} | Severity: @{triggerBody()?['object']?['properties']?['severity']} | Title: @{triggerBody()?['object']?['properties']?['title']}",
+                                            "status": "Open",
+                                            "priority": "@variables('Priority')",
+                                            "description": "Incident ID: @{triggerBody()?['object']?['properties']?['incidentNumber']}</br></br>\nTitle: @{triggerBody()?['object']?['properties']?['title']}</br></br>\nSeverity: @{triggerBody()?['object']?['properties']?['severity']}</br></br>\nIncident Azure portal url: @{triggerBody()?['object']?['properties']?['incidentUrl']}</br></br>\nDescription (If any): @{triggerBody()?['object']?['properties']?['description']}</br></br>\nIncident comments (If any): @{triggerBody()?['object']?['properties']?['Comments']}",
+                                            "requester_id": 52000547691,
+                                            "urgency": "@{variables('Priority')}",
+                                            "impact": "@{variables('Priority')}",
+                                            "source": "Microsoft Sentinel"
+                                        },
+                                        "path": "/api/v2/tickets"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "For_each": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "else": {
+                                "actions": {
+                                    "Add_comment_to_incident_(V3)_1": {
+                                        "runAfter": {
+                                            "Update_a_ticket_(V2)": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "ApiConnection",
+                                        "inputs": {
+                                            "host": {
+                                                "connection": {
+                                                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                                }
+                                            },
+                                            "method": "post",
+                                            "body": {
+                                                "incidentArmId": "@triggerBody()?['object']?['id']",
+                                                "message": "<p class=\"editor-paragraph\">FreshWork ID: @{variables('tickettag')}@{body('Update_a_ticket_(V2)')?['ticket']?['id']}has been updated on @{body('Update_a_ticket_(V2)')?['ticket']?['updated_at']}, which was actually created on @{body('Update_a_ticket_(V2)')?['ticket']?['created_at']}</p>"
+                                            },
+                                            "path": "/Incidents/Comment"
+                                        }
+                                    },
+                                    "Update_a_ticket_(V2)": {
+                                        "type": "ApiConnection",
+                                        "inputs": {
+                                            "host": {
+                                                "connection": {
+                                                    "name": "@parameters('$connections')['freshservice']['connectionId']"
+                                                }
+                                            },
+                                            "method": "put",
+                                            "body": {
+                                                "requester_id": 52000547691,
+                                                "subject": "MOV | Incident ID: @{triggerBody()?['object']?['properties']?['incidentNumber']} | Severity: @{triggerBody()?['object']?['properties']?['severity']} | Title: @{triggerBody()?['object']?['properties']?['title']}",
+                                                "urgency": "Low",
+                                                "impact": "Low",
+                                                "source": "Microsoft Sentinel"
+                                            },
+                                            "path": "/api/v2/tickets/@{encodeURIComponent(add(int(split(variables('tickettag')?['labelName'],'-')[1]), 0))}"
+                                        }
+                                    }
+                                }
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "equals": [
+                                            "@empty(variables('tickettag'))",
+                                            "@true"
+                                        ]
+                                    }
+                                ]
+                            },
+                            "type": "If"
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "azuresentinel": {
+                                "id": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/providers/Microsoft.Web/locations/westeurope/managedApis/azuresentinel",
+                                "connectionId": "[parameters('connections_azuresentinel_Freshservice_Incident_Notification_externalid')]",
+                                "connectionName": "[concat('azuresentinel-', parameters('workflows_Freshservice_Incident_Notification_name'))]",
+                                "connectionProperties": {
+                                    "authentication": {
+                                        "type": "ManagedServiceIdentity"
+                                    }
+                                }
+                            },
+                            "freshservice": {
+                                "id": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/providers/Microsoft.Web/locations/westeurope/managedApis/freshservice",
+                                "connectionId": "[parameters('connections_freshservice_externalid')]",
+                                "connectionName": "freshservice"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
