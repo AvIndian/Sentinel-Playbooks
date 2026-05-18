@@ -1,0 +1,231 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflows_AbuseIPDB_BlacklistIpToThreatIntelligence_name": {
+            "defaultValue": "AbuseIPDB-BlacklistIpToThreatIntelligence",
+            "type": "String"
+        },
+        "connections_abuseipdb_AbuseIPDB_BlacklistIpToThreatIntelligence_externalid": {
+            "defaultValue": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/resourceGroups/RG-IN2-SEC-MSSP-PRD-AWE-001/providers/Microsoft.Web/connections/abuseipdb-AbuseIPDB-BlacklistIpToThreatIntelligence",
+            "type": "String"
+        },
+        "customApis_AbuseIPDBAPI_externalid": {
+            "defaultValue": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/resourceGroups/RG-IN2-SEC-MSSP-PRD-AWE-001/providers/Microsoft.Web/customApis/AbuseIPDBAPI",
+            "type": "String"
+        },
+        "connections_ThreatIntelligence_connection_AbuseIPDB_BlacklistIpToThreatIntelligence_externalid": {
+            "defaultValue": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/resourceGroups/RG-IN2-SEC-MSSP-PRD-AWE-001/providers/Microsoft.Web/connections/ThreatIntelligence-connection-AbuseIPDB-BlacklistIpToThreatIntelligence",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('workflows_AbuseIPDB_BlacklistIpToThreatIntelligence_name')]",
+            "location": "westeurope",
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "Recurrence": {
+                            "recurrence": {
+                                "frequency": "Day",
+                                "interval": 1
+                            },
+                            "evaluatedRecurrence": {
+                                "frequency": "Day",
+                                "interval": 1
+                            },
+                            "type": "Recurrence"
+                        }
+                    },
+                    "actions": {
+                        "BLACKLIST_Endpoint": {
+                            "runAfter": {},
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['AbuseIPDBAPI']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/blacklist",
+                                "queries": {
+                                    "confidenceMinimum": 25,
+                                    "limit": 10000
+                                }
+                            }
+                        },
+                        "Initialize_Results_Array": {
+                            "runAfter": {
+                                "Select": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Results_Array",
+                                        "type": "array",
+                                        "value": "@body('Select')"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_Temp_Array": {
+                            "runAfter": {
+                                "Initialize_Working_Array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Temp_Array",
+                                        "type": "array"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_Working_Array": {
+                            "runAfter": {
+                                "Initialize_Results_Array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Working_array",
+                                        "type": "array"
+                                    }
+                                ]
+                            }
+                        },
+                        "Select": {
+                            "runAfter": {
+                                "BLACKLIST_Endpoint": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Select",
+                            "inputs": {
+                                "from": "@body('BLACKLIST_Endpoint')?['data']",
+                                "select": {
+                                    "action": "alert",
+                                    "confidence": "@item()['abuseConfidenceScore']",
+                                    "description": "AbuseIPDB BLACKLIST Indicator ",
+                                    "expirationDateTime": "@addDays(utcNow(),7)",
+                                    "lastReportedDateTime": "@item()['lastReportedAt']",
+                                    "networkDestinationIPv4": "@item()['ipAddress']",
+                                    "targetProduct": "Azure Sentinel",
+                                    "threatType": "WatchList",
+                                    "tlpLevel": "unknown"
+                                }
+                            }
+                        },
+                        "Until": {
+                            "actions": {
+                                "Remove_Items_From_Results_Array": {
+                                    "runAfter": {
+                                        "Set_Temp_Array": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "Results_Array",
+                                        "value": "@variables('Temp_Array')"
+                                    }
+                                },
+                                "Set_Temp_Array": {
+                                    "runAfter": {
+                                        "Submit_multiple_tiIndicators": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "Temp_Array",
+                                        "value": "@skip(variables('Results_Array'),100)"
+                                    }
+                                },
+                                "Set_Working_Array": {
+                                    "runAfter": {},
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "Working_array",
+                                        "value": "@take(variables('Results_Array'), 100)"
+                                    }
+                                },
+                                "Submit_multiple_tiIndicators": {
+                                    "runAfter": {
+                                        "Set_Working_Array": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "body": {
+                                            "value": "@variables('Working_array')"
+                                        },
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['microsoftgraphsecurity']['connectionId']"
+                                            }
+                                        },
+                                        "method": "post",
+                                        "path": "/beta/security/tiIndicators/submitTiIndicators"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Initialize_Temp_Array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": "@equals(length(variables('Results_Array')), 0)",
+                            "limit": {
+                                "count": 5000,
+                                "timeout": "PT1H"
+                            },
+                            "type": "Until"
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "AbuseIPDBAPI": {
+                                "connectionName": "[concat('abuseipdb-', parameters('workflows_AbuseIPDB_BlacklistIpToThreatIntelligence_name'))]",
+                                "connectionId": "[parameters('connections_abuseipdb_AbuseIPDB_BlacklistIpToThreatIntelligence_externalid')]",
+                                "id": "[parameters('customApis_AbuseIPDBAPI_externalid')]"
+                            },
+                            "microsoftgraphsecurity": {
+                                "connectionId": "[parameters('connections_ThreatIntelligence_connection_AbuseIPDB_BlacklistIpToThreatIntelligence_externalid')]",
+                                "connectionName": "[concat('ThreatIntelligence-connection-', parameters('workflows_AbuseIPDB_BlacklistIpToThreatIntelligence_name'))]",
+                                "id": "/subscriptions/b58ea857-41ff-4d93-9f00-7aa7ad9f51d6/providers/Microsoft.Web/locations/westeurope/managedApis/microsoftgraphsecurity"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
