@@ -1,0 +1,109 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflows_IncidentForwarding_name": {
+            "defaultValue": "IncidentForwarding",
+            "type": "String"
+        },
+        "connections_azuresentinel_IncidentForwarding_externalid": {
+            "defaultValue": "/subscriptions/d67dc9e9-a962-49f4-8db0-a1ec06d10097/resourceGroups/RG-IN2-SEC-PRD-AWE-1/providers/Microsoft.Web/connections/azuresentinel-IncidentForwarding",
+            "type": "String"
+        },
+        "connections_office365_externalid": {
+            "defaultValue": "/subscriptions/d67dc9e9-a962-49f4-8db0-a1ec06d10097/resourceGroups/RG-IN2-SEC-PRD-AWE-1/providers/Microsoft.Web/connections/office365",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('workflows_IncidentForwarding_name')]",
+            "location": "westeurope",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "state": "Disabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "Microsoft_Sentinel_incident": {
+                            "type": "ApiConnectionWebhook",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                    }
+                                },
+                                "body": {
+                                    "callback_url": "@{listCallbackUrl()}"
+                                },
+                                "path": "/incident-creation"
+                            }
+                        }
+                    },
+                    "actions": {
+                        "For_each": {
+                            "foreach": "@triggerBody()?['object']?['properties']?['Alerts']",
+                            "actions": {
+                                "Send_an_email_(V2)": {
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['office365']['connectionId']"
+                                            }
+                                        },
+                                        "method": "post",
+                                        "body": {
+                                            "To": "lazaro.serrano@intwo.cloud; performance@intechxsp.com; avinash.kumar@intwo.cloud",
+                                            "Subject": "Monitoring/SOC/Intwo/@{items('For_each')?['properties']?['severity']}/@{item()?['properties']?['alertDisplayName']}",
+                                            "Body": "<p class=\"editor-paragraph\">Greetings,<br><br>Please review the following information:<br><br>Alert Display Name: @{item()?['properties']?['alertDisplayName']}<br><br>Alert Severity: @{item()?['properties']?['severity']}<br><br>Time Generated: @{item()?['properties']?['timeGenerated']}<br><br>Alert Description: @{item()?['properties']?['description']}<br><br>Incident URL: @{triggerBody()?['object']?['properties']?['incidentUrl']}<br><br>Alert Product Name: @{item()?['properties']?['productName']}</p><br><br><p class=\"editor-paragraph\">User can be found here:</p><p class=\"editor-paragraph\">@{triggerBody()?['object']?['properties']?['relatedEntities']}</p><p class=\"editor-paragraph\"><br>Best regards,</p><br>",
+                                            "Importance": "Normal"
+                                        },
+                                        "path": "/v2/Mail"
+                                    }
+                                }
+                            },
+                            "runAfter": {},
+                            "type": "Foreach"
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "azuresentinel": {
+                                "id": "/subscriptions/d67dc9e9-a962-49f4-8db0-a1ec06d10097/providers/Microsoft.Web/locations/westeurope/managedApis/azuresentinel",
+                                "connectionId": "[parameters('connections_azuresentinel_IncidentForwarding_externalid')]",
+                                "connectionName": "[concat('azuresentinel-', parameters('workflows_IncidentForwarding_name'))]",
+                                "connectionProperties": {
+                                    "authentication": {
+                                        "type": "ManagedServiceIdentity"
+                                    }
+                                }
+                            },
+                            "office365": {
+                                "id": "/subscriptions/d67dc9e9-a962-49f4-8db0-a1ec06d10097/providers/Microsoft.Web/locations/westeurope/managedApis/office365",
+                                "connectionId": "[parameters('connections_office365_externalid')]",
+                                "connectionName": "office365",
+                                "connectionProperties": {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
